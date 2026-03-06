@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Futures-War | Voix de Marseille</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <h1>⚔️ Futures-War</h1>
+                <p>La voix des citoyens marseillais transformée en image</p>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main">
+            <!-- Recording Section -->
+            <section class="recording-section">
+                <div class="recording-card">
+                    <h2>🎤 Parlez votre vision futuriste</h2>
+                    <p>Cliquez sur le micro et dites votre vision pour Marseille</p>
+
+                    <div class="recording-controls">
+                        <button id="recordBtn" class="btn btn-primary">
+                            <span class="btn-icon">🎙️</span>
+                            Enregistrer
+                        </button>
+                        <button id="stopBtn" class="btn btn-secondary" disabled>
+                            <span class="btn-icon">⏹️</span>
+                            Arrêter
+                        </button>
+                    </div>
+
+                    <!-- Playback -->
+                    <div id="playbackContainer" class="playback-container hidden">
+                        <h3>Aperçu audio</h3>
+                        <audio id="audioPlayback" controls></audio>
+                        <button id="resetBtn" class="btn btn-secondary">
+                            <span class="btn-icon">🔄</span>
+                            Réinitialiser
+                        </button>
+                    </div>
+
+                    <!-- Status -->
+                    <div id="status" class="status"></div>
+                </div>
+            </section>
+
+            <!-- Processing Section -->
+            <section class="processing-section hidden">
+                <div class="processing-card">
+                    <h2>⚙️ Traitement en cours...</h2>
+
+                    <div class="progress-steps">
+                        <div class="step">
+                            <div class="step-icon">🎧</div>
+                            <div class="step-label">Transcription</div>
+                            <div id="step-transcript" class="step-status">En attente</div>
+                        </div>
+
+                        <div class="step">
+                            <div class="step-icon">🛡️</div>
+                            <div class="step-label">Filtrage</div>
+                            <div id="step-moderation" class="step-status">En attente</div>
+                        </div>
+
+                        <div class="step">
+                            <div class="step-icon">✨</div>
+                            <div class="step-label">Enrichissement</div>
+                            <div id="step-enrichment" class="step-status">En attente</div>
+                        </div>
+
+                        <div class="step">
+                            <div class="step-icon">🖼️</div>
+                            <div class="step-label">Génération</div>
+                            <div id="step-generation" class="step-status">En attente</div>
+                        </div>
+                    </div>
+
+                    <!-- Results -->
+                    <div id="resultsContainer" class="results-container hidden">
+                        <h3>✅ Votre vision futuriste</h3>
+
+                        <div class="result-item">
+                            <label>Texte original :</label>
+                            <p id="originalText"></p>
+                        </div>
+
+                        <div class="result-item">
+                            <label>Prompt enrichi :</label>
+                            <p id="enrichedPrompt"></p>
+                        </div>
+
+                        <div class="result-item">
+                            <label>Image générée :</label>
+                            <img id="generatedImage" src="" alt="Image générée">
+                        </div>
+
+                        <button id="downloadBtn" class="btn btn-primary">
+                            <span class="btn-icon">⬇️</span>
+                            Télécharger l'image
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Error Section -->
+            <div id="errorContainer" class="error-container hidden">
+                <div class="error-card">
+                    <h3>❌ Erreur</h3>
+                    <p id="errorMessage"></p>
+                    <button class="btn btn-secondary" onclick="resetUI()">
+                        <span class="btn-icon">🔄</span>
+                        Réessayer
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Futures-War © 2026 | Voix des citoyens marseillais</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

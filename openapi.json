@@ -1,0 +1,446 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "AI Orchestrator API",
+    "description": "API d'orchestration IA : speech-to-text (Whisper), prompt-to-image (Z-Image), chat completions (Ollama, format OpenAI).\nToutes les routes exigent une authentification par token Bearer.",
+    "version": "0.1.0"
+  },
+  "servers": [
+    {
+      "url": "https://{host}",
+      "variables": {
+        "host": {
+          "default": "api.example.com"
+        }
+      }
+    },
+    {
+      "url": "http://localhost:8000"
+    }
+  ],
+  "security": [
+    { "BearerAuth": [] }
+  ],
+  "tags": [
+    {
+      "name": "orchestrator",
+      "description": "Routes d'orchestration (transcription, génération d'image, stats)"
+    },
+    {
+      "name": "llm",
+      "description": "LLM compatible OpenAI (Ollama)"
+    }
+  ],
+  "paths": {
+    "/api/speech-to-text": {
+      "post": {
+        "tags": ["orchestrator"],
+        "summary": "Speech-to-text (audio → texte)",
+        "description": "Transcription d'un fichier audio en texte via Whisper.",
+        "operationId": "speechToText",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Fichier audio (MP3, WAV, M4A, etc.). Type MIME doit commencer par `audio/`."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Texte transcrit",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SpeechToTextResponse" }
+              }
+            }
+          },
+          "400": {
+            "description": "Fichier non audio",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token invalide ou manquant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/prompt-to-image": {
+      "post": {
+        "tags": ["orchestrator"],
+        "summary": "Prompt-to-image (texte → image)",
+        "description": "Génération d'une image à partir d'un prompt via Z-Image (Tongyi-MAI).",
+        "operationId": "promptToImage",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PromptToImageRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Image(s) en base64",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PromptToImageResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token invalide ou manquant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system-stats": {
+      "get": {
+        "tags": ["orchestrator"],
+        "summary": "System stats",
+        "description": "État CPU, RAM, GPU, disque, uptime et configuration Whisper / Ollama / Z-Image.",
+        "operationId": "systemStats",
+        "responses": {
+          "200": {
+            "description": "Statistiques système",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SystemStatsResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token invalide ou manquant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/chat/completions": {
+      "post": {
+        "tags": ["llm"],
+        "summary": "Chat Completions (LLM, format OpenAI)",
+        "description": "Génération de texte par un modèle de langage (Ollama). Format compatible OpenAI.",
+        "operationId": "chatCompletions",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ChatCompletionsRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Réponse type OpenAI (choices[0].message.content)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ChatCompletionsResponse" }
+              }
+            }
+          },
+          "400": {
+            "description": "Body JSON invalide",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token invalide ou manquant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Ollama indisponible",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token Bearer configuré côté serveur (API_BEARER_TOKEN). Header `Authorization: Bearer <token>`."
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            ]
+          }
+        },
+        "description": "Message d'erreur (401, 400, 503, etc.)"
+      },
+      "SpeechToTextResponse": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Texte transcrit."
+          }
+        }
+      },
+      "PromptToImageRequest": {
+        "type": "object",
+        "required": ["prompt"],
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Description de l'image à générer."
+          },
+          "model": {
+            "type": "string",
+            "enum": ["Tongyi-MAI/Z-Image-Turbo", "Tongyi-MAI/Z-Image"],
+            "description": "Modèle Z-Image. Si absent, défaut serveur."
+          },
+          "steps": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Nombre d'étapes (ex. 9 Turbo, 28–50 Z-Image)."
+          },
+          "guidance_scale": {
+            "type": "number",
+            "nullable": true,
+            "description": "Force du respect du prompt (0 pour Turbo, 3–5 pour Z-Image)."
+          },
+          "height": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Hauteur de l'image en pixels."
+          },
+          "width": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Largeur de l'image en pixels."
+          },
+          "negative_prompt": {
+            "type": "string",
+            "nullable": true,
+            "description": "Éléments à éviter (utile pour Z-Image non Turbo)."
+          },
+          "seed": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Graine pour reproduire la même image."
+          }
+        }
+      },
+      "PromptToImageResponse": {
+        "type": "object",
+        "required": ["images", "model"],
+        "properties": {
+          "images": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "byte",
+              "description": "Image PNG encodée en base64."
+            }
+          },
+          "model": {
+            "type": "string",
+            "description": "Modèle effectivement utilisé."
+          }
+        }
+      },
+      "SystemStatsResponse": {
+        "type": "object",
+        "properties": {
+          "cpu": {
+            "type": "object",
+            "properties": {
+              "count": { "type": "integer", "nullable": true },
+              "percent": { "type": "number" }
+            }
+          },
+          "ram": {
+            "type": "object",
+            "properties": {
+              "total_mb": { "type": "number" },
+              "available_mb": { "type": "number" },
+              "used_mb": { "type": "number" },
+              "percent": { "type": "number" }
+            }
+          },
+          "gpus": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": { "type": "integer" },
+                "device_name": { "type": "string" },
+                "vram_total_mb": { "type": "number" },
+                "vram_allocated_mb": { "type": "number" },
+                "vram_reserved_mb": { "type": "number" },
+                "error": { "type": "string", "description": "En cas d'erreur CUDA" }
+              }
+            }
+          },
+          "disk": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "path": { "type": "string" },
+              "total_gb": { "type": "number" },
+              "used_gb": { "type": "number" },
+              "free_gb": { "type": "number" },
+              "percent": { "type": "number" },
+              "error": { "type": "string" }
+            }
+          },
+          "uptime_seconds": { "type": "number", "nullable": true },
+          "whisper": {
+            "type": "object",
+            "properties": {
+              "model_size": { "type": "string" },
+              "device": { "type": "string" }
+            }
+          },
+          "ollama": {
+            "type": "object",
+            "properties": {
+              "base_url": { "type": "string" },
+              "model": { "type": "string" }
+            }
+          },
+          "zimage": {
+            "type": "object",
+            "properties": {
+              "model": { "type": "string" },
+              "device": { "type": "string" },
+              "cpu_offload": { "type": "boolean" },
+              "steps": { "type": "integer" },
+              "guidance": { "type": "number" },
+              "height": { "type": "integer" },
+              "width": { "type": "integer" },
+              "seed": { "type": "integer", "nullable": true },
+              "cfg_normalization": { "type": "boolean" }
+            }
+          }
+        }
+      },
+      "ChatCompletionsRequest": {
+        "type": "object",
+        "required": ["model", "messages"],
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Nom du modèle Ollama (ex. llama3.2:1b)."
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["role", "content"],
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": ["system", "user", "assistant"]
+                },
+                "content": { "type": "string" }
+              }
+            }
+          },
+          "stream": {
+            "type": "boolean",
+            "default": false,
+            "description": "Réponse en streaming (SSE)."
+          },
+          "temperature": {
+            "type": "number",
+            "description": "Aléatoire 0–2."
+          },
+          "max_tokens": {
+            "type": "integer",
+            "description": "Nombre max de tokens en sortie."
+          }
+        }
+      },
+      "ChatCompletionsResponse": {
+        "type": "object",
+        "description": "Format compatible OpenAI.",
+        "properties": {
+          "id": { "type": "string" },
+          "object": { "type": "string" },
+          "created": { "type": "integer" },
+          "model": { "type": "string" },
+          "choices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": { "type": "integer" },
+                "message": {
+                  "type": "object",
+                  "properties": {
+                    "role": { "type": "string" },
+                    "content": { "type": "string" }
+                  }
+                },
+                "finish_reason": { "type": "string" }
+              }
+            }
+          },
+          "usage": {
+            "type": "object",
+            "properties": {
+              "prompt_tokens": { "type": "integer" },
+              "completion_tokens": { "type": "integer" },
+              "total_tokens": { "type": "integer" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,281 @@
+"""
+AI Service Clients
+Integrations with Whisper, LLM, and Image Generation APIs
+"""
+
+import os
+import json
+import subprocess
+import tempfile
+import base64
+from datetime import datetime
+
+# ============================================================================
+# WHISPER CLIENT - Speech-to-Text
+# ============================================================================
+
+class WhisperClient:
+    """Whisper API client for audio transcription using curl"""
+
+    def __init__(self):
+        self.api_key = os.getenv("WHISPER_API_KEY")
+        self.api_url = os.getenv(
+            "WHISPER_API_URL",
+            "https://api.openai.com/v1/audio/transcriptions"
+        )
+
+    async def transcribe(self, audio_data: bytes) -> dict:
+        """
+        Transcribe audio to text using Whisper API via curl
+        
+        Args:
+            audio_data: Raw audio bytes
+            
+        Returns:
+            dict with 'text' and 'confidence' keys
+        """
+        tmp_path = None
+        try:
+            # Save audio to temporary file for curl
+            with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as tmp:
+                tmp.write(audio_data)
+                tmp_path = tmp.name
+            
+            print(f"[DEBUG-WHISPER] Audio file saved: {tmp_path} (size: {len(audio_data)} bytes)")
+            
+            # Build curl command
+            cmd = [
+                'curl',
+                '-s',
+                '-X', 'POST',
+                self.api_url,
+                '-H', f'Authorization: Bearer {self.api_key}',
+                '-F', f'file=@{tmp_path}',
+            ]
+            
+            print(f"[DEBUG-WHISPER] Calling API: {self.api_url}")
+            
+            # Execute curl
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            
+            print(f"[DEBUG-WHISPER] API response code: {result.returncode}")
+            print(f"[DEBUG-WHISPER] API response: {result.stdout[:500]}")
+            
+            if result.returncode != 0:
+                raise Exception(f"curl error: {result.stderr}")
+            
+            response_data = json.loads(result.stdout)
+            
+            # Check for error response from API
+            if 'detail' in response_data or 'error' in response_data:
+                raise Exception(f"API error: {response_data}")
+            
+            text = response_data.get('text', '')
+            if not text:
+                raise Exception("Empty transcription received")
+            
+            print(f"[DEBUG-WHISPER] ✅ Transcription successful: '{text}'")
+            
+            return {
+                'text': text,
+                'confidence': response_data.get('confidence', 0.95)
+            }
+        except Exception as e:
+            print(f"[DEBUG-WHISPER] ❌ Transcription error: {str(e)}")
+            raise Exception(f"Whisper transcription failed: {str(e)}")
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+
+class ZImageTurboClient:
+    """Z-Image-Turbo API client for image generation"""
+
+    def __init__(self):
+        self.api_key = os.getenv("ZIMAGETURBO_API_KEY")
+        self.api_url = os.getenv(
+            "ZIMAGETURBO_API_URL",
+            "http://localhost:8001/api/prompt-to-image"
+        )
+        self.model = os.getenv("ZIMAGETURBO_MODEL", "Tongyi-MAI/Z-Image-Turbo")
+
+    async def generate(self, prompt: str) -> dict:
+        """
+        Generate image from prompt using Z-Image-Turbo API
+        
+        Args:
+            prompt: Text description for image generation
+            
+        Returns:
+            dict with 'image_url' and 'model' keys
+        """
+        try:
+            payload = {
+                "prompt": prompt,
+                "model": self.model,
+                "steps": 25
+            }
+            payload_json = json.dumps(payload)
+            
+            cmd = [
+                'curl',
+                '-s',
+                '-X', 'POST',
+                self.api_url,
+                '-H', 'Content-Type: application/json',
+                '-H', f'Authorization: Bearer {self.api_key}',
+                '-d', payload_json
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            
+            if result.returncode != 0:
+                raise Exception(f"curl error: {result.stderr}")
+            
+            response_data = json.loads(result.stdout)
+            
+            if 'error' in response_data:
+                raise Exception(f"API error: {response_data['error']}")
+            
+            image_url = response_data.get('image_url')
+            if not image_url:
+                raise Exception("No image URL in response")
+            
+            return {
+                'image_url': image_url,
+                'model': self.model
+            }
+        except Exception as e:
+            raise Exception(f"Image generation failed: {str(e)}")
+
+
+class LlamaClient:
+    """Llama API client for content moderation using curl"""
+
+    def __init__(self):
+        self.api_url = os.getenv("LLAMA_API_URL", "http://localhost:8001")
+        self.model = os.getenv("LLAMA_MODEL", "llama-3.2-1b")
+
+    async def moderate(self, text: str) -> dict:
+        """
+        Check content for inappropriate language
+        
+        Args:
+            text: Text to moderate
+            
+        Returns:
+            dict with moderation result
+        """
+        try:
+            payload = {
+                "model": self.model,
+                "prompt": f"Content moderation: Is this text appropriate? Text: {text}",
+                "stream": False
+            }
+            payload_json = json.dumps(payload)
+            
+            cmd = [
+                'curl',
+                '-s',
+                '-X', 'POST',
+                f'{self.api_url}/api/generate',
+                '-H', 'Content-Type: application/json',
+                '-d', payload_json
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode != 0:
+                raise Exception(f"curl error: {result.stderr}")
+            
+            response_data = json.loads(result.stdout)
+            
+            # Parse response
+            response_text = response_data.get('response', '').lower()
+            is_safe = 'yes' in response_text or 'appropriate' in response_text
+            
+            return {'is_safe': is_safe}
+        except Exception as e:
+            raise Exception(f"Moderation failed: {str(e)}")
+
+    async def transcribe_from_text(self, text: str) -> dict:
+        """
+        For now, return the text as-is since audio transcription
+        requires Whisper or similar. This is a placeholder.
+        """
+        return {
+            'text': text,
+            'confidence': 0.95
+        }
+
+
+class GpuLlmClient:
+    """GPU LLM Server client for chat completions"""
+
+    def __init__(self):
+        self.api_url = os.getenv("LLM_API_URL", "http://localhost:8001")
+        self.api_token = os.getenv("LLM_API_TOKEN")
+        self.model = os.getenv("LLAMA_MODEL", "llama-3.2-1b")
+
+    async def chat_completion(self, messages: list, model: str = None) -> dict:
+        """
+        Send chat completion request to GPU LLM server
+        
+        Args:
+            messages: List of message dicts with 'role' and 'content'
+            model: Model to use (default from config)
+            
+        Returns:
+            dict with 'content' key
+        """
+        try:
+            model = model or self.model
+            
+            # Build curl command
+            payload = {
+                'model': model,
+                'messages': messages
+            }
+            payload_json = json.dumps(payload)
+            
+            cmd = [
+                'curl',
+                '-s',
+                '-X', 'POST',
+                f'{self.api_url}/v1/chat/completions',
+                '-H', 'Content-Type: application/json'
+            ]
+            
+            if self.api_token:
+                cmd.extend(['-H', f'Authorization: Bearer {self.api_token}'])
+            
+            cmd.extend(['-d', payload_json])
+            
+            # Execute curl
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            
+            if result.returncode != 0:
+                raise Exception(f"curl error: {result.stderr}")
+            
+            response_data = json.loads(result.stdout)
+            
+            # Extract content from response
+            content = response_data.get('choices', [{}])[0].get('message', {}).get('content', '')
+            
+            return {
+                'content': content,
+                'model': model,
+                'usage': response_data.get('usage', {})
+            }
+        except Exception as e:
+            raise Exception(f"Chat completion failed: {str(e)}")
+
+
+# ============================================================================
+# GLOBAL CLIENT INSTANCES
+# ============================================================================
+
+whisper_client = WhisperClient()
+zimageturbo_client = ZImageTurboClient()
+llama_client = LlamaClient()
+gpu_llm_client = GpuLlmClient()

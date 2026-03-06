@@ -1,0 +1,5 @@
+::1 - - [04/Mar/2026 13:42:14] "GET /style.css HTTP/1.1" 304 -
+::1 - - [04/Mar/2026 13:42:49] code 404, message File not found
+::1 - - [04/Mar/2026 13:42:49] "GET /favicon.ico HTTP/1.1" 404 -
+::1 - - [04/Mar/2026 14:26:46] "GET / HTTP/1.1" 304 -
+::1 - - [04/Mar/2026 14:26:46] "GET /app.js HTTP/1.1" 200 -

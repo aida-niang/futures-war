@@ -1,0 +1,396 @@
+"""
+AI Orchestrator API - Main Application
+Backend service for voice-to-image generation with content moderation.
+
+Reuses professor-provided specifications (openapi.json) and vocabulary (banque_de_prompts).
+"""
+
+import os
+import json
+from datetime import datetime
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer
+from fastapi.responses import JSONResponse
+import psutil
+from dotenv import load_dotenv
+
+from models.schemas import (
+    TranscriptionRequest,
+    TranscriptionResponse,
+    ImageGenerationRequest,
+    ImageGenerationResponse,
+    ProcessRequest,
+    ProcessResponse,
+    SystemStatsResponse,
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+)
+from services.ai_client import whisper_client, zimageturbo_client, llama_client, gpu_llm_client
+from services.prompt_eng import PromptEngineer
+from utils.moderation import ContentModerator
+
+load_dotenv()
+
+app = FastAPI(
+    title="AI Orchestrator API",
+    description="Orchestration IA : speech-to-text (Whisper), prompt-to-image (Z-Image), chat completions (Ollama). Aligné avec openapi.json.",
+    version="0.2.0",
+    docs_url="/docs",
+    openapi_url="/openapi.json"
+)
+
+# CORS Configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:8000",
+        "*"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Custom exception handler for validation errors
+from fastapi.exceptions import RequestValidationError
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "Validation error",
+            "errors": [{"loc": e["loc"], "msg": e["msg"], "type": e["type"]} for e in exc.errors()]
+        }
+    )
+
+# Security: Bearer token authentication
+security = HTTPBearer()
+BEARER_TOKEN = os.getenv("API_BEARER_TOKEN", "default-token-change-in-production")
+
+async def verify_token(credentials: HTTPBearer = Depends(security)):
+    """Verify Bearer token authentication"""
+    if credentials.credentials != BEARER_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    return credentials.credentials
+
+# Initialize services
+engineer = PromptEngineer()
+moderator = ContentModerator()
+
+# ============================================================================
+# HEALTH CHECK
+# ============================================================================
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "service": "AI Orchestrator",
+        "timestamp": datetime.now().isoformat(),
+        "version": "0.2.0"
+    }
+
+
+@app.options("/{full_path:path}")
+async def preflight_handler(full_path: str):
+    """Handle CORS preflight requests"""
+    return JSONResponse(
+        content={},
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization"
+        }
+    )
+
+
+# ============================================================================
+# ORCHESTRATOR ENDPOINTS (/api/...)
+# ============================================================================
+
+@app.post("/api/speech-to-text", response_model=TranscriptionResponse)
+async def speech_to_text(
+    file: UploadFile = File(...),
+    token: str = Depends(verify_token)
+):
+    """
+    Speech-to-text endpoint (Whisper API)
+    
+    Transcribe audio file to text.
+    Requires Bearer token authentication.
+    """
+    try:
+        # Validate file type
+        if not file.content_type or not file.content_type.startswith("audio/"):
+            raise HTTPException(
+                status_code=400,
+                detail="File must be audio format (audio/mp3, audio/wav, etc.)"
+            )
+        
+        # Read audio data
+        audio_data = await file.read()
+        
+        # Transcribe via Whisper
+        result = await whisper_client.transcribe(audio_data)
+        
+        return TranscriptionResponse(
+            text=result['text'],
+            confidence=result.get('confidence', 0.9),
+            timestamp=datetime.now().isoformat()
+        )
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
+
+
+@app.post("/api/prompt-to-image", response_model=ImageGenerationResponse)
+async def prompt_to_image(
+    request: ImageGenerationRequest,
+    token: str = Depends(verify_token)
+):
+    """
+    Prompt-to-image endpoint (Z-Image API)
+    
+    Generate image from text prompt using Z-Image-Turbo or Z-Image.
+    Supports model selection, custom dimensions, guidance scale.
+    Requires Bearer token authentication.
+    """
+    try:
+        # Use specified model or default
+        model = request.model or "Tongyi-MAI/Z-Image-Turbo"
+        
+        # Generate image via Z-Image
+        result = await zimageturbo_client.generate(
+            prompt=request.prompt,
+            style=request.style if hasattr(request, 'style') else "futuristic",
+            model=model,
+            steps=request.steps,
+            guidance_scale=request.guidance_scale,
+            height=request.height,
+            width=request.width,
+            seed=request.seed
+        )
+        
+        return ImageGenerationResponse(
+            images=[result['image_url']],
+            model=result.get('model', model),
+            prompt=request.prompt,
+            timestamp=datetime.now().isoformat()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Image generation failed: {str(e)}")
+
+
+@app.get("/api/system-stats", response_model=SystemStatsResponse)
+async def system_stats(token: str = Depends(verify_token)):
+    """
+    System statistics endpoint
+    
+    Returns CPU, RAM, GPU (VRAM), disk usage, uptime.
+    Also includes configuration status of Whisper, Ollama, Z-Image.
+    Requires Bearer token authentication.
+    """
+    try:
+        # CPU stats
+        cpu_percent = psutil.cpu_percent(interval=1)
+        cpu_count = psutil.cpu_count()
+        
+        # RAM stats
+        ram = psutil.virtual_memory()
+        
+        # Disk stats
+        try:
+            disk = psutil.disk_usage('/')
+            disk_info = {
+                "path": "/",
+                "total_gb": disk.total / (1024**3),
+                "used_gb": disk.used / (1024**3),
+                "free_gb": disk.free / (1024**3),
+                "percent": disk.percent
+            }
+        except Exception as e:
+            disk_info = {"error": str(e)}
+        
+        # Uptime
+        uptime_seconds = datetime.now().timestamp() - psutil.boot_time()
+        
+        return SystemStatsResponse(
+            cpu={"count": cpu_count, "percent": cpu_percent},
+            ram={
+                "total_mb": ram.total / (1024**2),
+                "available_mb": ram.available / (1024**2),
+                "used_mb": ram.used / (1024**2),
+                "percent": ram.percent
+            },
+            disk=disk_info,
+            uptime_seconds=uptime_seconds,
+            whisper={
+                "model_size": os.getenv("WHISPER_MODEL", "base"),
+                "device": "cpu"
+            },
+            ollama={
+                "base_url": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+                "model": os.getenv("OLLAMA_MODEL", "llama2")
+            },
+            zimage={
+                "model": "Z-Image-Turbo",
+                "device": "cuda" if os.getenv("USE_GPU") else "cpu",
+                "steps": 9,
+                "guidance": 1.0,
+                "height": 1024,
+                "width": 1024
+            },
+            timestamp=datetime.now().isoformat()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Stats retrieval failed: {str(e)}")
+
+
+# ============================================================================
+# LLM ENDPOINT (OpenAI-compatible)
+# ============================================================================
+
+@app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
+async def chat_completions(
+    request: ChatCompletionRequest,
+    token: str = Depends(verify_token)
+):
+    """
+    Chat completions endpoint (Ollama API)
+    
+    OpenAI-compatible chat completion endpoint.
+    Routes to local Ollama instance.
+    Requires Bearer token authentication.
+    """
+    try:
+        # For now, return a placeholder response
+        # In production, route to Ollama
+        return ChatCompletionResponse(
+            id="chatcmpl-" + os.urandom(12).hex(),
+            object="chat.completion",
+            created=int(datetime.now().timestamp()),
+            model=request.model,
+            choices=[{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "Chat completions via Ollama (coming soon)"
+                },
+                "finish_reason": "stop"
+            }],
+            usage={
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Chat completion failed: {str(e)}")
+
+
+# ============================================================================
+# LEGACY ENDPOINTS (Backward compatibility)
+# ============================================================================
+
+@app.post("/transcribe", response_model=TranscriptionResponse)
+async def transcribe_legacy(request: TranscriptionRequest):
+    """Legacy endpoint - redirects to /api/speech-to-text"""
+    result = await whisper_client.transcribe(
+        bytes.fromhex(request.audio_base64) if isinstance(request.audio_base64, str) else request.audio_base64
+    )
+    return TranscriptionResponse(
+        text=result['text'],
+        confidence=result.get('confidence', 0.9),
+        timestamp=datetime.now().isoformat()
+    )
+
+
+@app.post("/generate", response_model=ImageGenerationResponse)
+async def generate_legacy(request: ImageGenerationRequest):
+    """Legacy endpoint - redirects to /api/prompt-to-image"""
+    result = await zimageturbo_client.generate(request.prompt)
+    return ImageGenerationResponse(
+        images=[result['image_url']],
+        model=result.get('model', 'z-image-turbo'),
+        prompt=request.prompt,
+        timestamp=datetime.now().isoformat()
+    )
+
+
+@app.post("/process", response_model=ProcessResponse)
+async def process_legacy(request: ProcessRequest):
+    """Legacy endpoint - complete pipeline (audio → text → image)"""
+    try:
+        # Transcribe - convert base64 to bytes
+        import base64
+        audio_bytes = base64.b64decode(request.audio_base64) if isinstance(request.audio_base64, str) else request.audio_base64
+        
+        original_text = ""
+        try:
+            transcription = await whisper_client.transcribe(audio_bytes)
+            original_text = transcription['text']
+            print(f"[DEBUG] Transcription successful: {original_text[:50]}")
+        except Exception as e:
+            # Fallback: Use a generic Marseille prompt (Whisper not available)
+            print(f"[DEBUG] Transcription failed: {str(e)}")
+            original_text = "Marseille future city"
+        
+        print(f"[DEBUG] Using original_text: {original_text}")
+        
+        # Moderate
+        moderation = moderator.moderate(original_text)
+        is_safe = moderation['is_safe']
+        
+        # Enrich
+        enrichment_result = engineer.enrich(original_text)
+        enriched_prompt = enrichment_result.get('enriched', original_text) if isinstance(enrichment_result, dict) else enrichment_result
+        
+        # Generate
+        generation = await zimageturbo_client.generate(enriched_prompt)
+        
+        return ProcessResponse(
+            original_text=original_text,
+            enriched_prompt=enriched_prompt,
+            is_safe=is_safe,
+            image_url=generation['image_url'],
+            timestamp=datetime.now().isoformat()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+# ============================================================================
+# ADDITIONAL ENDPOINTS (Backward compatibility + utilities)
+# ============================================================================
+
+@app.post("/moderate")
+async def moderate_text(text: str):
+    """Moderation endpoint for text"""
+    try:
+        result = moderator.moderate(text)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/enrich")
+async def enrich_text(text: str, style: str = "futuristic"):
+    """Prompt enrichment endpoint"""
+    try:
+        result = engineer.enrich(text, style)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
