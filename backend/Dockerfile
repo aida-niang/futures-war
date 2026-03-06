@@ -1,21 +1,22 @@
-# Utilise une version légère de Python
-FROM python:3.10-slim
+FROM python:3.11-slim
 
-# Définit le dossier de travail
 WORKDIR /app
 
-# IMPORTANT : Installe curl (car ton code python l'utilise via subprocess)
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+# 1. Installation des dépendances système (CURL et FFMPEG pour Whisper)
+RUN apt-get update && apt-get install -y \
+    curl \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copie les dépendances et installe-les
+# 2. Copie et installation des bibliothèques Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copie tout le code
+# 3. Copie de tout le code source du backend
 COPY . .
 
-# Ouvre le port 8000
+# 4. Exposition du port pour Dokploy
 EXPOSE 8000
 
-# Lance le serveur (adapte "main:app" si ton fichier principal ne s'appelle pas main.py)
+# 5. Lancement de l'application
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

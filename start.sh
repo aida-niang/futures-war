@@ -57,7 +57,7 @@ case $COMMAND in
         
         # Start backend in background
         cd "$BACKEND_DIR"
-        python main.py &
+        python3 main.py &
         BACKEND_PID=$!
         
         # Give backend time to start
@@ -65,7 +65,7 @@ case $COMMAND in
         
         # Start frontend in background (from frontend directory)
         cd "$FRONTEND_DIR"
-        python -m http.server 3000 --directory . &
+        python3 -m http.server 3000 --directory . &
         FRONTEND_PID=$!
         
         echo -e "${GREEN}✅ Both services started!${NC}"
