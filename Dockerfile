@@ -1,9 +1,8 @@
-# On utilise Nginx pour afficher ton site web
+# Utilise Nginx
 FROM nginx:alpine
 
-# On copie les fichiers de ton interface web vers le dossier public de Nginx
-# (Assure-toi que tes fichiers HTML/CSS/JS sont bien accessibles ici)
+# Copie tes fichiers statiques
 COPY . /usr/share/nginx/html
 
-# On expose le port 80 pour le web
-EXPOSE 3000
+# EXPOSE LE PORT 80 (Le standard pour Nginx)
+EXPOSE 80
